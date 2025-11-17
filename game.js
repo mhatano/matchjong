@@ -1,0 +1,329 @@
+// game.js
+
+// --- DOM要素の取得 ---
+const canvas = document.getElementById('game-board');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const statusEl = document.getElementById('game-status');
+const handSlotsContainer = document.getElementById('hand-slots');
+
+// --- ゲーム設定 ---
+const GRID_SIZE = 20;
+const TILE_SIZE = canvas.width / GRID_SIZE;
+const PAI_KINDS = [
+    ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.MANZU, i + 1)),
+    ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.PINZU, i + 1)),
+    ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.SOUZU, i + 1)),
+    ...Array.from({ length: 7 }, (_, i) => createPai(PAI_TYPES.JIHAI, i + 1)),
+];
+
+// --- ゲーム状態 ---
+let board = [];
+let hand = [];
+let score = 0;
+let selectedTile = null;
+let gameState = 'COLLECTING_MELTS'; // or 'MAKING_PAIR'
+
+// --- 初期化処理 ---
+function init() {
+    // 手牌スロットの生成
+    for (let i = 0; i < 14; i++) {
+        const slot = document.createElement('div');
+        slot.classList.add('hand-slot');
+        slot.id = `slot-${i}`;
+        handSlotsContainer.appendChild(slot);
+    }
+
+    // ゲーム盤面の初期化
+    for (let r = 0; r < GRID_SIZE; r++) {
+        board[r] = [];
+        for (let c = 0; c < GRID_SIZE; c++) {
+            board[r][c] = getRandomPai();
+        }
+    }
+    
+    // 初期状態でマッチがないようにする
+    while(findMatches().length > 0) {
+        removeMatches();
+        fillBoard();
+    }
+
+    canvas.addEventListener('click', onCanvasClick);
+    updateDisplay();
+    drawBoard();
+}
+
+// --- 描画処理 ---
+function drawBoard() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            const pai = board[r][c];
+            if (pai) {
+                drawPai(c * TILE_SIZE, r * TILE_SIZE, pai);
+            }
+            // 選択中の牌をハイライト
+            if (selectedTile && selectedTile.r === r && selectedTile.c === c) {
+                ctx.strokeStyle = 'yellow';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            }
+        }
+    }
+}
+
+function drawPai(x, y, pai) {
+    ctx.fillStyle = 'white';
+    ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+    
+    ctx.fillStyle = 'black';
+    ctx.font = `${TILE_SIZE * 0.6}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(paiToString(pai), x + TILE_SIZE / 2, y + TILE_SIZE / 2);
+}
+
+// --- 画面更新 ---
+function updateDisplay() {
+    scoreEl.textContent = score;
+
+    // 手牌スロットの更新
+    for (let i = 0; i < 14; i++) {
+        const slot = document.getElementById(`slot-${i}`);
+        slot.textContent = hand[i] ? paiToString(hand[i]) : '';
+    }
+
+    // ゲーム状態の表示
+    if (gameState === 'COLLECTING_MELTS') {
+        statusEl.textContent = `面子を集めてください (${hand.length}/12)`;
+    } else {
+        statusEl.textContent = '聴牌！ 対子を作って和了！';
+    }
+}
+
+// --- ゲームロジック ---
+
+function getRandomPai() {
+    return PAI_KINDS[Math.floor(Math.random() * PAI_KINDS.length)];
+}
+
+async function onCanvasClick(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const c = Math.floor(x / TILE_SIZE);
+    const r = Math.floor(y / TILE_SIZE);
+
+    if (!selectedTile) {
+        selectedTile = { r, c };
+    } else {
+        // 隣接タイルかチェック
+        const isAdjacent = Math.abs(selectedTile.r - r) + Math.abs(selectedTile.c - c) === 1;
+        if (isAdjacent) {
+            await swapAndCheck(selectedTile.r, selectedTile.c, r, c);
+        }
+        selectedTile = null;
+    }
+    drawBoard();
+}
+
+async function swapAndCheck(r1, c1, r2, c2) {
+    swap(r1, c1, r2, c2);
+    drawBoard();
+    await sleep(200);
+
+    if (gameState === 'MAKING_PAIR') {
+        // 聴牌時は、スワップした2牌が対子になるかだけをチェック
+        const pai1 = board[r1][c1];
+        const pai2 = board[r2][c2];
+        const isPair = pai1.type === pai2.type && pai1.number === pai2.number;
+
+        if (isPair) {
+            // 和了！
+            await handleWin([pai1, pai2], [{r: r1, c: c1}, {r: r2, c: c2}]);
+        } else {
+            // 対子でなければ、たとえ3つ揃いができても無効な動きとして元に戻す
+            swap(r1, c1, r2, c2);
+            drawBoard();
+        }
+    } else {
+        // 通常の面子集め状態
+        const matches = findMatches();
+        if (matches.length > 0) {
+            // マッチ成功
+            await handleMatches(matches);
+        } else {
+            // マッチ失敗、元に戻す
+            swap(r1, c1, r2, c2);
+            drawBoard();
+        }
+    }
+}
+
+function swap(r1, c1, r2, c2) {
+    [board[r1][c1], board[r2][c2]] = [board[r2][c2], board[r1][c1]];
+}
+
+function findMatches() {
+    const matches = [];
+    const checked = new Set();
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            const key = `${r}-${c}`;
+            if (checked.has(key) || !board[r][c]) continue;
+
+            // --- 刻子（同じ牌が3つ）---
+            // 横
+            if (c < GRID_SIZE - 2 && board[r][c].type === board[r][c+1].type && board[r][c].number === board[r][c+1].number && board[r][c+1].type === board[r][c+2].type && board[r][c+1].number === board[r][c+2].number) {
+                const match = [{r, c}, {r, c: c+1}, {r, c: c+2}];
+                matches.push(match);
+                match.forEach(p => checked.add(`${p.r}-${p.c}`));
+                continue;
+            }
+            // 縦
+            if (r < GRID_SIZE - 2 && board[r][c].type === board[r+1][c].type && board[r][c].number === board[r+1][c].number && board[r+1][c].type === board[r+2][c].type && board[r+1][c].number === board[r+2][c].number) {
+                const match = [{r, c}, {r: r+1, c}, {r: r+2, c}];
+                matches.push(match);
+                match.forEach(p => checked.add(`${p.r}-${p.c}`));
+                continue;
+            }
+
+            // --- 順子（連続した数字）---
+            // 横
+            if (c < GRID_SIZE - 2) {
+                const pais = [board[r][c], board[r][c+1], board[r][c+2]].sort((a,b) => a.number - b.number);
+                if (pais[0].type !== 'z' && pais[0].type === pais[1].type && pais[1].type === pais[2].type && pais[0].number + 1 === pais[1].number && pais[1].number + 1 === pais[2].number) {
+                    const match = [{r, c}, {r, c: c+1}, {r, c: c+2}];
+                    matches.push(match);
+                    match.forEach(p => checked.add(`${p.r}-${p.c}`));
+                    continue;
+                }
+            }
+            // 縦
+            if (r < GRID_SIZE - 2) {
+                const pais = [board[r][c], board[r+1][c], board[r+2][c]].sort((a,b) => a.number - b.number);
+                if (pais[0].type !== 'z' && pais[0].type === pais[1].type && pais[1].type === pais[2].type && pais[0].number + 1 === pais[1].number && pais[1].number + 1 === pais[2].number) {
+                    const match = [{r, c}, {r: r+1, c}, {r: r+2, c}];
+                    matches.push(match);
+                    match.forEach(p => checked.add(`${p.r}-${p.c}`));
+                    continue;
+                }
+            }
+        }
+    }
+    return matches;
+}
+
+async function handleWin(winPais, winPositions) {
+    hand.push(...winPais);
+
+    if (hand.length === 14) {
+        const yakuScore = calculateScore(hand);
+        score += yakuScore;
+        updateDisplay(); // スコアを先に更新
+        await sleep(100);
+        alert(`和了！ ${yakuScore}点獲得！`);
+
+        // リセット
+        hand = [];
+        gameState = 'COLLECTING_MELTS';
+    } else {
+        console.error("手牌が14枚になっていません。和了処理を中断します。");
+        hand.pop();
+        hand.pop();
+        return; // 異常終了
+    }
+
+    // 和了した牌を盤面から消す
+    for (const pos of winPositions) {
+        board[pos.r][pos.c] = null;
+    }
+    await processBoardAfterRemove();
+}
+
+async function handleMatches(matches) {
+    for (const match of matches) {
+        const pais = match.map(p => board[p.r][p.c]);
+        
+        if (gameState === 'COLLECTING_MELTS' && hand.length < 12) {
+            hand.push(...pais);
+            hand.sort((a, b) => a.type.localeCompare(b.type) || a.number - b.number);
+        }
+    }
+
+    // 状態遷移
+    if (hand.length >= 12 && gameState === 'COLLECTING_MELTS') {
+        gameState = 'MAKING_PAIR';
+    }
+    
+    removeMatches(matches.flat());
+    await processBoardAfterRemove();
+}
+
+async function processBoardAfterRemove() {
+    drawBoard();
+    await sleep(300);
+
+    // 牌を落とす
+    fallDown();
+    drawBoard();
+    await sleep(300);
+
+    // 新しい牌を補充
+    fillBoard();
+    drawBoard();
+    await sleep(300);
+    
+    // 補充後に新たなマッチがあれば連鎖（聴牌状態では連鎖しない）
+    if (gameState === 'COLLECTING_MELTS') {
+        const newMatches = findMatches();
+        if (newMatches.length > 0) {
+            await handleMatches(newMatches);
+        }
+    }
+
+    updateDisplay();
+}
+
+function removeMatches(matchPositions) {
+    if (!matchPositions) { // 引数がない場合は全マッチを探す
+        matchPositions = findMatches().flat();
+    }
+    for (const pos of matchPositions) {
+        board[pos.r][pos.c] = null;
+    }
+}
+
+function fallDown() {
+    for (let c = 0; c < GRID_SIZE; c++) {
+        let emptyRow = -1;
+        for (let r = GRID_SIZE - 1; r >= 0; r--) {
+            if (board[r][c] === null && emptyRow === -1) {
+                emptyRow = r;
+            } else if (board[r][c] !== null && emptyRow !== -1) {
+                board[emptyRow][c] = board[r][c];
+                board[r][c] = null;
+                emptyRow--;
+            }
+        }
+    }
+}
+
+function fillBoard() {
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            if (board[r][c] === null) {
+                board[r][c] = getRandomPai();
+            }
+        }
+    }
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// --- ゲーム開始 ---
+init();

@@ -1,0 +1,55 @@
+body {
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-color: #f0f0f0;
+}
+
+.game-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.info-panel {
+    display: flex;
+    justify-content: space-around;
+    width: 100%;
+}
+
+#game-board {
+    border: 2px solid #333;
+    background-color: #e0e0e0;
+}
+
+.hand-area {
+    width: 100%;
+}
+
+.hand-slots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    background-color: #fafafa;
+    min-height: 50px;
+}
+
+.hand-slot {
+    width: 30px;
+    height: 45px;
+    border: 1px solid #999;
+    background-color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 16px;
+    font-weight: bold;
+}

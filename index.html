@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>麻雀マッチ3パズル</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>麻雀マッチ3パズル</h1>
+    <div class="game-container">
+        <div class="info-panel">
+            <div class="score-area">
+                <h2>スコア</h2>
+                <p id="score">0</p>
+            </div>
+            <div class="status-area">
+                <h2>状態</h2>
+                <p id="game-status">面子を集めてください</p>
+            </div>
+        </div>
+        <canvas id="game-board" width="800" height="800"></canvas>
+        <div class="hand-area">
+            <h2>手牌</h2>
+            <div id="hand-slots" class="hand-slots">
+                <!-- JavaScriptでスロットを生成 -->
+            </div>
+        </div>
+    </div>
+    <script src="mahjong-logic.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
