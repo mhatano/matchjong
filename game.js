@@ -6,6 +6,8 @@ const ctx = canvas.getContext('2d');
 const scoreEl = document.getElementById('score');
 const statusEl = document.getElementById('game-status');
 const handSlotsContainer = document.getElementById('hand-slots');
+const hintContainer = document.getElementById('hint-container');
+const hintButton = document.getElementById('hint-button');
 
 // --- ゲーム設定 ---
 const GRID_SIZE = 20;
@@ -23,6 +25,8 @@ let hand = [];
 let score = 0;
 let selectedTile = null;
 let gameState = 'COLLECTING_MELTS'; // or 'MAKING_PAIR'
+let matchableTiles = new Set();
+let isHintActive = false; // ヒント機能が有効かどうかのフラグ
 
 // --- 初期化処理 ---
 function init() {
@@ -43,12 +47,14 @@ function init() {
     }
     
     // 初期状態でマッチがないようにする
-    while(findMatches().length > 0) {
-        removeMatches();
+    let initialMatches;
+    while((initialMatches = findMatches()).length > 0) {
+        removeMatches(initialMatches.flat());
         fillBoard();
     }
 
     canvas.addEventListener('click', onCanvasClick);
+    hintButton.addEventListener('click', onHintClick);
     updateDisplay();
     drawBoard();
 }
@@ -60,7 +66,9 @@ function drawBoard() {
         for (let c = 0; c < GRID_SIZE; c++) {
             const pai = board[r][c];
             if (pai) {
-                drawPai(c * TILE_SIZE, r * TILE_SIZE, pai);
+                // マッチ可能な牌は背景色を変える
+                const isMatchable = isHintActive && matchableTiles.has(`${r}-${c}`);
+                drawPai(c * TILE_SIZE, r * TILE_SIZE, pai, isMatchable);
             }
             // 選択中の牌をハイライト
             if (selectedTile && selectedTile.r === r && selectedTile.c === c) {
@@ -72,8 +80,8 @@ function drawBoard() {
     }
 }
 
-function drawPai(x, y, pai) {
-    ctx.fillStyle = 'white';
+function drawPai(x, y, pai, isMatchable = false) {
+    ctx.fillStyle = isMatchable ? '#e6f7ff' : 'white'; // マッチ可能なら水色、そうでなければ白
     ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
     ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
     
@@ -100,6 +108,13 @@ function updateDisplay() {
     } else {
         statusEl.textContent = '聴牌！ 対子を作って和了！';
     }
+
+    // スコアに応じてヒントボタンの表示を切り替える
+    if (score >= 200 && gameState === 'COLLECTING_MELTS') {
+        hintContainer.style.display = 'block';
+    } else {
+        hintContainer.style.display = 'none';
+    }
 }
 
 // --- ゲームロジック ---
@@ -107,6 +122,18 @@ function updateDisplay() {
 function getRandomPai() {
     return PAI_KINDS[Math.floor(Math.random() * PAI_KINDS.length)];
 }
+
+function onHintClick() {
+    if (score < 200 || isHintActive) return;
+
+    score -= 200;
+    isHintActive = true;
+    
+    findAllMatchableTiles();
+    updateDisplay();
+    drawBoard();
+}
+
 
 async function onCanvasClick(event) {
     const rect = canvas.getBoundingClientRect();
@@ -129,6 +156,12 @@ async function onCanvasClick(event) {
 }
 
 async function swapAndCheck(r1, c1, r2, c2) {
+    // ヒントが有効な場合、スワップ操作が行われた時点で無効化する
+    if (isHintActive) {
+        isHintActive = false;
+        matchableTiles.clear();
+    }
+
     swap(r1, c1, r2, c2);
     drawBoard();
     await sleep(200);
@@ -179,15 +212,15 @@ function findMatches() {
             if (c < GRID_SIZE - 2 && board[r][c].type === board[r][c+1].type && board[r][c].number === board[r][c+1].number && board[r][c+1].type === board[r][c+2].type && board[r][c+1].number === board[r][c+2].number) {
                 const match = [{r, c}, {r, c: c+1}, {r, c: c+2}];
                 matches.push(match);
-                match.forEach(p => checked.add(`${p.r}-${p.c}`));
-                continue;
+                // マッチを一つ見つけたら、すぐに結果を返して探索を終了する
+                return matches;
             }
             // 縦
             if (r < GRID_SIZE - 2 && board[r][c].type === board[r+1][c].type && board[r][c].number === board[r+1][c].number && board[r+1][c].type === board[r+2][c].type && board[r+1][c].number === board[r+2][c].number) {
                 const match = [{r, c}, {r: r+1, c}, {r: r+2, c}];
                 matches.push(match);
-                match.forEach(p => checked.add(`${p.r}-${p.c}`));
-                continue;
+                // マッチを一つ見つけたら、すぐに結果を返して探索を終了する
+                return matches;
             }
 
             // --- 順子（連続した数字）---
@@ -197,8 +230,8 @@ function findMatches() {
                 if (pais[0].type !== 'z' && pais[0].type === pais[1].type && pais[1].type === pais[2].type && pais[0].number + 1 === pais[1].number && pais[1].number + 1 === pais[2].number) {
                     const match = [{r, c}, {r, c: c+1}, {r, c: c+2}];
                     matches.push(match);
-                    match.forEach(p => checked.add(`${p.r}-${p.c}`));
-                    continue;
+                    // マッチを一つ見つけたら、すぐに結果を返して探索を終了する
+                    return matches;
                 }
             }
             // 縦
@@ -207,8 +240,8 @@ function findMatches() {
                 if (pais[0].type !== 'z' && pais[0].type === pais[1].type && pais[1].type === pais[2].type && pais[0].number + 1 === pais[1].number && pais[1].number + 1 === pais[2].number) {
                     const match = [{r, c}, {r: r+1, c}, {r: r+2, c}];
                     matches.push(match);
-                    match.forEach(p => checked.add(`${p.r}-${p.c}`));
-                    continue;
+                    // マッチを一つ見つけたら、すぐに結果を返して探索を終了する
+                    return matches;
                 }
             }
         }
@@ -278,13 +311,23 @@ async function processBoardAfterRemove() {
     
     // 補充後に新たなマッチがあれば連鎖（聴牌状態では連鎖しない）
     if (gameState === 'COLLECTING_MELTS') {
-        const newMatches = findMatches();
-        if (newMatches.length > 0) {
-            await handleMatches(newMatches);
-        }
+        await checkAndHandleChain();
     }
 
     updateDisplay();
+}
+
+async function checkAndHandleChain() {
+    const newMatches = findMatches();
+    if (newMatches.length > 0) {
+        await handleMatches(newMatches);
+    } else {
+        // 連鎖が終了し、操作可能な状態になったら手詰まりをチェック
+        if (!hasValidMoves()) {
+            alert("手詰まりになりました。盤面をシャッフルします。");
+            await shuffleBoard();
+        }
+    }
 }
 
 function removeMatches(matchPositions) {
@@ -319,6 +362,90 @@ function fillBoard() {
             }
         }
     }
+}
+
+/**
+ * マッチ可能なすべての牌を見つけて matchableTiles を更新する
+ */
+function findAllMatchableTiles() {
+    matchableTiles.clear();
+    if (gameState === 'MAKING_PAIR') return;
+
+    // 水平方向のスワップをチェック
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE - 1; c++) {
+            swap(r, c, r, c + 1); // 仮想的にスワップ
+            if (findMatches().length > 0) {
+                matchableTiles.add(`${r}-${c}`);
+                matchableTiles.add(`${r}-${c + 1}`);
+            }
+            swap(r, c, r, c + 1); // 元に戻す
+        }
+    }
+
+    // 垂直方向のスワップをチェック
+    for (let r = 0; r < GRID_SIZE - 1; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            swap(r, c, r + 1, c); // 仮想的にスワップ
+            if (findMatches().length > 0) {
+                matchableTiles.add(`${r}-${c}`);
+                matchableTiles.add(`${r + 1}-${c}`);
+            }
+            swap(r, c, r + 1, c); // 元に戻す
+        }
+    }
+}
+
+/**
+ * 盤面上に有効な手（マッチにつながるスワップ）があるかチェックする
+ * @returns {boolean} 有効な手がある場合は true, ない場合は false
+ */
+function hasValidMoves() {
+    // 聴牌状態ではこのチェックは不要
+    if (gameState === 'MAKING_PAIR') return true;
+
+    // 盤面全体をチェックして有効な手があるか確認
+    // 水平方向のスワップをチェック
+    for (let r = 0; r < GRID_SIZE; r++) {
+        for (let c = 0; c < GRID_SIZE - 1; c++) {
+            swap(r, c, r, c + 1); // 仮想的にスワップ
+            if (findMatches().length > 0) {
+                swap(r, c, r, c + 1); // 元に戻す
+                return true;
+            }
+            swap(r, c, r, c + 1); // 元に戻す
+        }
+    }
+    // 垂直方向のスワップをチェック
+    for (let r = 0; r < GRID_SIZE - 1; r++) {
+        for (let c = 0; c < GRID_SIZE; c++) {
+            swap(r, c, r + 1, c); // 仮想的にスワップ
+            if (findMatches().length > 0) {
+                swap(r, c, r + 1, c); // 元に戻す
+                return true;
+            }
+            swap(r, c, r + 1, c); // 元に戻す
+        }
+    }
+    return false;
+}
+
+async function shuffleBoard() {
+    let allPais = board.flat();
+
+    // Fisher-Yates shuffle
+    for (let i = allPais.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allPais[i], allPais[j]] = [allPais[j], allPais[i]];
+    }
+
+    board = Array.from({ length: GRID_SIZE }, (_, r) => allPais.slice(r * GRID_SIZE, (r + 1) * GRID_SIZE));
+    
+    drawBoard();
+    await sleep(300);
+
+    // シャッフル後もマッチや手詰まりがないか再チェック
+    await checkAndHandleChain();
 }
 
 function sleep(ms) {
