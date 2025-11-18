@@ -251,6 +251,7 @@ function findMatches() {
 
 async function handleWin(winPais, winPositions) {
     hand.push(...winPais);
+    hand.sort((a, b) => a.type.localeCompare(b.type) || a.number - b.number);
 
     if (hand.length === 14) {
         const yakuScore = calculateScore(hand);
@@ -450,6 +451,202 @@ async function shuffleBoard() {
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// --- 役判定とスコア計算 ---
+
+/**
+ * 和了形の手牌から役を判定し、スコアを計算します。
+ * @param {Array<Object>} completedHand - ソート済みの14枚の手牌
+ * @returns {number} 役に応じたスコア
+ */
+function calculateScore(completedHand) {
+    let totalScore = 1000; // 和了の基本点
+    const yakuBonuses = {
+        toitoi: 2000,
+        ikkitsuukan: 1000,
+        iipeikou: 500,
+        honitsu: 2000,
+        chinitsu: 4000,
+        yakuhai: 500, // 1刻子あたりの点数
+        junchan: 2000,
+        chanta: 1000,
+    };
+
+    // 雀頭の候補を見つける
+    const pairs = [];
+    const counts = countPais(completedHand);
+    for (const key in counts) {
+        if (counts[key] >= 2) {
+            const [type, number] = key.split('-');
+            pairs.push(createPai(type, parseInt(number)));
+        }
+    }
+
+    // 各雀頭候補について、残りの牌で4面子が作れるか試す
+    for (const pair of pairs) {
+        const remaining = removePais(completedHand, [pair, pair]);
+        const melds = findMelds(remaining);
+
+        if (melds && melds.length === 4) {
+            // 和了形が成立した場合、役を判定
+            let currentYakuScore = 0;
+
+            // --- 混全帯么九 / 純全帯么九の判定 ---
+            const allComponents = [...melds, { type: 'pair', pais: [pair] }];
+            const isTerminal = (p) => p.type !== PAI_TYPES.JIHAI && (p.number === 1 || p.number === 9);
+            const isYaochuhai = (p) => isTerminal(p) || p.type === PAI_TYPES.JIHAI;
+
+            const allContainYaochuhai = allComponents.every(comp => comp.pais.some(isYaochuhai));
+
+            if (allContainYaochuhai) {
+                const allContainTerminals = allComponents.every(comp => comp.pais.some(isTerminal));
+                const hasJihai = completedHand.some(p => p.type === PAI_TYPES.JIHAI);
+
+                if (allContainTerminals && !hasJihai) {
+                    // 純全帯么九 (字牌を含まず、すべてが数牌の1,9を含む)
+                    currentYakuScore += yakuBonuses.junchan;
+                } else if (hasJihai) {
+                    // 混全帯么九 (字牌を含み、すべてが1,9,字牌を含む)
+                    currentYakuScore += yakuBonuses.chanta;
+                }
+            }
+
+            // 複合役の判定のため、ここで return しない
+            const isJunchanOrChanta = currentYakuScore > 0;
+
+
+            // --- 混一色・清一色の判定 ---
+            const paiTypes = new Set(completedHand.map(p => p.type));
+            const hasJihai = paiTypes.has(PAI_TYPES.JIHAI);
+            const suupaiTypes = new Set();
+            completedHand.forEach(p => {
+                if (p.type !== PAI_TYPES.JIHAI) {
+                    suupaiTypes.add(p.type);
+                }
+            });
+
+            if (suupaiTypes.size === 1 && !isJunchanOrChanta) { // チャンタ系とホンイツ系は複合しない
+                if (hasJihai) {
+                    // 混一色
+                    currentYakuScore += yakuBonuses.honitsu;
+                } else {
+                    // 清一色
+                    // 純チャンと複合しない清一色の場合のみ加算
+                    currentYakuScore += yakuBonuses.chinitsu;
+                }
+            }
+
+            // --- 対々和の判定 ---
+            const isToitoi = melds.every(meld => meld.type === 'koutsu');
+            if (isToitoi) {
+                currentYakuScore += yakuBonuses.toitoi;
+            }
+
+            // --- 役牌（白・發・中）の判定 ---
+            const koutsuMelds = melds.filter(meld => meld.type === 'koutsu');
+            for (const meld of koutsuMelds) {
+                const pai = meld.pais[0];
+                // 白(5), 發(6), 中(7)
+                if (pai.type === PAI_TYPES.JIHAI && [5, 6, 7].includes(pai.number)) {
+                    currentYakuScore += yakuBonuses.yakuhai;
+                }
+            }
+
+            // --- 順子系の役の判定（対々和、清一色、混一色と複合しない場合が多い） ---
+            if (!isToitoi && !isJunchanOrChanta) { // 対々和やチャンタ系とは複合しない
+                const shuntsuMelds = melds.filter(meld => meld.type === 'shuntsu');
+                
+                // 一気通貫
+                const manzuShuntsu = shuntsuMelds.filter(m => m.pais[0].type === PAI_TYPES.MANZU).map(m => m.pais[0].number);
+                const pinzuShuntsu = shuntsuMelds.filter(m => m.pais[0].type === PAI_TYPES.PINZU).map(m => m.pais[0].number);
+                const souzuShuntsu = shuntsuMelds.filter(m => m.pais[0].type === PAI_TYPES.SOUZU).map(m => m.pais[0].number);
+
+                if ((manzuShuntsu.includes(1) && manzuShuntsu.includes(4) && manzuShuntsu.includes(7)) ||
+                    (pinzuShuntsu.includes(1) && pinzuShuntsu.includes(4) && pinzuShuntsu.includes(7)) ||
+                    (souzuShuntsu.includes(1) && souzuShuntsu.includes(4) && souzuShuntsu.includes(7))) {
+                    currentYakuScore += yakuBonuses.ikkitsuukan;
+                }
+
+                // 一盃口
+                const shuntsuCounts = {};
+                for (const meld of shuntsuMelds) {
+                    const key = `${meld.pais[0].type}-${meld.pais[0].number}`;
+                    shuntsuCounts[key] = (shuntsuCounts[key] || 0) + 1;
+                }
+                for (const key in shuntsuCounts) {
+                    if (shuntsuCounts[key] >= 2) {
+                        currentYakuScore += yakuBonuses.iipeikou;
+                        break; // 一盃口は1つまで
+                    }
+                }
+            }
+            
+            return totalScore + currentYakuScore; // 最初の有効な和了形で計算を終了
+        }
+    }
+
+    return totalScore; // 役なし
+}
+
+/**
+ * 牌の配列から、各牌が何枚あるかを数える
+ * @param {Array<Object>} pais 
+ * @returns {Object} キーが'type-number'、値が個数のオブジェクト
+ */
+function countPais(pais) {
+    return pais.reduce((acc, pai) => {
+        const key = `${pai.type}-${pai.number}`;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {});
+}
+
+/**
+ * 牌の配列から指定された牌を削除した新しい配列を返す
+ * @param {Array<Object>} sourcePais 
+ * @param {Array<Object>} paisToRemove 
+ * @returns {Array<Object>}
+ */
+function removePais(sourcePais, paisToRemove) {
+    const temp = [...sourcePais];
+    for (const pai of paisToRemove) {
+        const index = temp.findIndex(p => p.type === pai.type && p.number === pai.number);
+        if (index !== -1) {
+            temp.splice(index, 1);
+        }
+    }
+    return temp;
+}
+
+/**
+ * 残りの手牌から再帰的に面子を見つける
+ * @param {Array<Object>} pais - ソート済みの手牌
+ * @returns {Array<Object>|null} 面子の配列、または見つからなければnull
+ */
+function findMelds(pais) {
+    if (pais.length === 0) return [];
+
+    const p1 = pais[0];
+    // 刻子を探す
+    if (pais.length >= 3 && pais[1].type === p1.type && pais[1].number === p1.number && pais[2].type === p1.type && pais[2].number === p1.number) {
+        const remaining = pais.slice(3);
+        const result = findMelds(remaining);
+        if (result) return [{ type: 'koutsu', pais: [p1, pais[1], pais[2]] }, ...result];
+    }
+    // 順子を探す
+    if (p1.type !== PAI_TYPES.JIHAI && pais.length >= 3) {
+        const p2Index = pais.findIndex(p => p.type === p1.type && p.number === p1.number + 1);
+        const p3Index = pais.findIndex(p => p.type === p1.type && p.number === p1.number + 2);
+        if (p2Index !== -1 && p3Index !== -1) {
+            const p2 = pais[p2Index];
+            const p3 = pais[p3Index];
+            const remaining = removePais(pais, [p1, p2, p3]);
+            const result = findMelds(remaining);
+            if (result) return [{ type: 'shuntsu', pais: [p1, p2, p3] }, ...result];
+        }
+    }
+    return null; // 面子が見つからない
 }
 
 // --- ゲーム開始 ---
