@@ -4,6 +4,7 @@
 const canvas = document.getElementById('game-board');
 const ctx = canvas.getContext('2d');
 const scoreEl = document.getElementById('score');
+let starsEl; // ★表示用の要素（initで生成）
 const statusEl = document.getElementById('game-status');
 const handSlotsContainer = document.getElementById('hand-slots');
 const hintContainer = document.getElementById('hint-container');
@@ -22,14 +23,38 @@ const PAI_KINDS = [
 // --- ゲーム状態 ---
 let board = [];
 let hand = [];
-let score = 0;
+let score;
+let stars;
+let lastStarRecoveryCheckTime; // 時間による★回復を最後にチェックした時刻
 let selectedTile = null;
-let gameState = 'COLLECTING_MELTS'; // or 'MAKING_PAIR'
+let gameState;
 let matchableTiles = new Set();
 let isHintActive = false; // ヒント機能が有効かどうかのフラグ
 
 // --- 初期化処理 ---
 function init() {
+    // ★表示要素の生成
+    starsEl = document.createElement('div');
+    starsEl.id = 'stars-container';
+    starsEl.innerHTML = `★ <span id="stars"></span>`;
+    scoreEl.parentElement.insertBefore(starsEl, scoreEl.nextSibling);
+
+    if (loadGame()) {
+        // 時間経過による★の回復を計算
+        const now = Date.now();
+        const elapsedHours = (now - lastStarRecoveryCheckTime) / (1000 * 60 * 60);
+        if (elapsedHours >= 5) {
+            const starsToRecover = Math.min(Math.floor(elapsedHours / 5), 5); // 回復は最大5個まで
+            stars = Math.min(stars, 10); // 現在のスターが10を超えていたら10にする
+            stars = Math.min(stars + starsToRecover, 10); // 回復しても10を超えない
+            lastStarRecoveryCheckTime = now; // 最終チェック時刻を更新
+            saveGame();
+        }
+    } else {
+        // セーブデータがない場合、ゲームを初期化
+        resetGame();
+    }
+
     // 手牌スロットの生成
     for (let i = 0; i < 14; i++) {
         const slot = document.createElement('div');
@@ -38,6 +63,20 @@ function init() {
         handSlotsContainer.appendChild(slot);
     }
 
+    canvas.addEventListener('click', onCanvasClick);
+    hintButton.addEventListener('click', onHintClick);
+    updateDisplay();
+    drawBoard();
+}
+
+function resetGame() {
+    board = [];
+    hand = [];
+    score = 0;
+    stars = 5;
+    lastStarRecoveryCheckTime = Date.now();
+    gameState = 'COLLECTING_MELTS';
+
     // ゲーム盤面の初期化
     for (let r = 0; r < GRID_SIZE; r++) {
         board[r] = [];
@@ -45,16 +84,17 @@ function init() {
             board[r][c] = getRandomPai();
         }
     }
-    
+
     // 初期状態でマッチがないようにする
     let initialMatches;
-    while((initialMatches = findMatches()).length > 0) {
-        removeMatches(initialMatches.flat());
-        fillBoard();
-    }
+    do {
+        while ((initialMatches = findMatches()).length > 0) {
+            removeMatches(initialMatches.flat());
+            fillBoard();
+        }
+    } while (!hasValidMoves()); // 手詰まりで始まらないようにする
 
-    canvas.addEventListener('click', onCanvasClick);
-    hintButton.addEventListener('click', onHintClick);
+    saveGame();
     updateDisplay();
     drawBoard();
 }
@@ -95,6 +135,7 @@ function drawPai(x, y, pai, isMatchable = false) {
 // --- 画面更新 ---
 function updateDisplay() {
     scoreEl.textContent = score;
+    document.getElementById('stars').textContent = stars;
 
     // 手牌スロットの更新
     for (let i = 0; i < 14; i++) {
@@ -110,7 +151,7 @@ function updateDisplay() {
     }
 
     // スコアに応じてヒントボタンの表示を切り替える
-    if (score >= 200 && gameState === 'COLLECTING_MELTS') {
+    if (stars > 0 && gameState === 'COLLECTING_MELTS') {
         hintContainer.style.display = 'block';
     } else {
         hintContainer.style.display = 'none';
@@ -124,13 +165,14 @@ function getRandomPai() {
 }
 
 function onHintClick() {
-    if (score < 200 || isHintActive) return;
+    if (stars <= 0 || isHintActive) return;
 
-    score -= 200;
+    stars--;
     isHintActive = true;
     
     findAllMatchableTiles();
     updateDisplay();
+    saveGame();
     drawBoard();
 }
 
@@ -316,6 +358,7 @@ async function processBoardAfterRemove() {
     }
 
     updateDisplay();
+    saveGame();
 }
 
 async function checkAndHandleChain() {
@@ -327,6 +370,7 @@ async function checkAndHandleChain() {
         if (!hasValidMoves()) {
             alert("手詰まりになりました。盤面をシャッフルします。");
             await shuffleBoard();
+            saveGame();
         }
     }
 }
@@ -461,16 +505,23 @@ function sleep(ms) {
  * @returns {number} 役に応じたスコア
  */
 function calculateScore(completedHand) {
+    const oldScore = score;
     let totalScore = 1000; // 和了の基本点
     const yakuBonuses = {
         toitoi: 2000,
         ikkitsuukan: 1000,
         iipeikou: 500,
-        honitsu: 2000,
+        // 混一色と清一色は、純チャン・チャンタと複合しないルールを適用
+        // 役の優先度や複合ルールは麻雀のルールによって様々ですが、ここでは一般的なものを採用します。
+        // 混全帯么九(1000) < 混一色(2000)
+        // 純全帯么九(2000) < 清一色(4000)
+        honitsu: 2000, 
         chinitsu: 4000,
         yakuhai: 500, // 1刻子あたりの点数
         junchan: 2000,
         chanta: 1000,
+        sanshokuDoujun: 2000, // 三色同順
+        sanshokuDoukou: 2000, // 三色同刻
     };
 
     // 雀頭の候補を見つける
@@ -490,6 +541,7 @@ function calculateScore(completedHand) {
 
         if (melds && melds.length === 4) {
             // 和了形が成立した場合、役を判定
+            let currentYakuScore = 0;
             let currentYakuScore = 0;
 
             // --- 混全帯么九 / 純全帯么九の判定 ---
@@ -543,6 +595,25 @@ function calculateScore(completedHand) {
                 currentYakuScore += yakuBonuses.toitoi;
             }
 
+            // --- 三色同刻の判定 ---
+            // 刻子が3つ以上ないと成立しない。
+            const koutsuMelds = melds.filter(meld => meld.type === 'koutsu');
+            if (koutsuMelds.length >= 3) {
+                const koutsuByNumber = {};
+                for (const meld of koutsuMelds) {
+                    const pai = meld.pais[0];
+                    if (pai.type !== PAI_TYPES.JIHAI) { // 字牌は対象外
+                        if (!koutsuByNumber[pai.number]) {
+                            koutsuByNumber[pai.number] = new Set();
+                        }
+                        koutsuByNumber[pai.number].add(pai.type);
+                    }
+                }
+                if (Object.values(koutsuByNumber).some(types => types.size === 3)) {
+                    currentYakuScore += yakuBonuses.sanshokuDoukou;
+                }
+            }
+
             // --- 役牌（白・發・中）の判定 ---
             const koutsuMelds = melds.filter(meld => meld.type === 'koutsu');
             for (const meld of koutsuMelds) {
@@ -557,6 +628,23 @@ function calculateScore(completedHand) {
             if (!isToitoi && !isJunchanOrChanta) { // 対々和やチャンタ系とは複合しない
                 const shuntsuMelds = melds.filter(meld => meld.type === 'shuntsu');
                 
+                // --- 三色同順の判定 ---
+                if (shuntsuMelds.length >= 3) {
+                    const shuntsuByNumber = {};
+                    for (const meld of shuntsuMelds) {
+                        const startPai = meld.pais.sort((a, b) => a.number - b.number)[0];
+                        if (!shuntsuByNumber[startPai.number]) {
+                            shuntsuByNumber[startPai.number] = new Set();
+                        }
+                        shuntsuByNumber[startPai.number].add(startPai.type);
+                    }
+                    // 萬子・筒子・索子の3種類が揃っているかチェック
+                    if (Object.values(shuntsuByNumber).some(types => types.size === 3)) {
+                        currentYakuScore += yakuBonuses.sanshokuDoujun;
+                    }
+                }
+
+
                 // 一気通貫
                 const manzuShuntsu = shuntsuMelds.filter(m => m.pais[0].type === PAI_TYPES.MANZU).map(m => m.pais[0].number);
                 const pinzuShuntsu = shuntsuMelds.filter(m => m.pais[0].type === PAI_TYPES.PINZU).map(m => m.pais[0].number);
@@ -582,11 +670,20 @@ function calculateScore(completedHand) {
                 }
             }
             
-            return totalScore + currentYakuScore; // 最初の有効な和了形で計算を終了
+            const finalScore = totalScore + currentYakuScore;
+            const newScore = oldScore + finalScore;
+
+            // スコアによる★回復チェック
+            const starsFromScore = Math.floor(newScore / 10000) - Math.floor(oldScore / 10000);
+            if (starsFromScore > 0) {
+                stars = Math.min(stars + starsFromScore, 10);
+            }
+
+            return finalScore; // 最初の有効な和了形で計算を終了
         }
     }
 
-    return totalScore; // 役なし
+    return totalScore; // 役なし（基本点のみ）
 }
 
 /**
@@ -647,6 +744,41 @@ function findMelds(pais) {
         }
     }
     return null; // 面子が見つからない
+}
+
+// --- 状態の保存と読み込み ---
+
+function saveGame() {
+    const gameStateData = {
+        board,
+        hand,
+        score,
+        stars,
+        lastStarRecoveryCheckTime,
+        gameState,
+    };
+    localStorage.setItem('matchjongGameState', JSON.stringify(gameStateData));
+}
+
+function loadGame() {
+    const savedState = localStorage.getItem('matchjongGameState');
+    if (savedState) {
+        try {
+            const gameStateData = JSON.parse(savedState);
+            board = gameStateData.board;
+            hand = gameStateData.hand;
+            score = gameStateData.score;
+            stars = gameStateData.stars;
+            lastStarRecoveryCheckTime = gameStateData.lastStarRecoveryCheckTime;
+            gameState = gameStateData.gameState;
+            return true;
+        } catch (e) {
+            console.error("セーブデータの読み込みに失敗しました。", e);
+            localStorage.removeItem('matchjongGameState');
+            return false;
+        }
+    }
+    return false;
 }
 
 // --- ゲーム開始 ---
