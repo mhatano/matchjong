@@ -33,12 +33,6 @@ let isHintActive = false; // ヒント機能が有効かどうかのフラグ
 
 // --- 初期化処理 ---
 function init() {
-    // ★表示要素の生成
-    starsEl = document.createElement('div');
-    starsEl.id = 'stars-container';
-    starsEl.innerHTML = `★ <span id="stars"></span>`;
-    scoreEl.parentElement.insertBefore(starsEl, scoreEl.nextSibling);
-
     if (loadGame()) {
         // 時間経過による★の回復を計算
         const now = Date.now();
@@ -150,11 +144,12 @@ function updateDisplay() {
         statusEl.textContent = '聴牌！ 対子を作って和了！';
     }
 
-    // スコアに応じてヒントボタンの表示を切り替える
+    // ヒントボタンの活性状態を切り替える
+    hintContainer.style.display = 'block'; // 常に表示
     if (stars > 0 && gameState === 'COLLECTING_MELTS') {
-        hintContainer.style.display = 'block';
+        hintButton.disabled = false;
     } else {
-        hintContainer.style.display = 'none';
+        hintButton.disabled = true;
     }
 }
 
