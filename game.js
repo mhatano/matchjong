@@ -4,7 +4,6 @@
 const canvas = document.getElementById('game-board');
 const ctx = canvas.getContext('2d');
 const scoreEl = document.getElementById('score');
-let starsEl; // ★表示用の要素（initで生成）
 const statusEl = document.getElementById('game-status');
 const handSlotsContainer = document.getElementById('hand-slots');
 const hintContainer = document.getElementById('hint-container');
@@ -13,12 +12,7 @@ const hintButton = document.getElementById('hint-button');
 // --- ゲーム設定 ---
 const GRID_SIZE = 20;
 const TILE_SIZE = canvas.width / GRID_SIZE;
-const PAI_KINDS = [
-    ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.MANZU, i + 1)),
-    ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.PINZU, i + 1)),
-    ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.SOUZU, i + 1)),
-    ...Array.from({ length: 7 }, (_, i) => createPai(PAI_TYPES.JIHAI, i + 1)),
-];
+let PAI_KINDS; // init関数内で初期化
 
 // --- ゲーム状態 ---
 let board = [];
@@ -33,6 +27,14 @@ let isHintActive = false; // ヒント機能が有効かどうかのフラグ
 
 // --- 初期化処理 ---
 function init() {
+    // 牌の種類を定義（mahjong-logic.jsの読み込み後に行う）
+    PAI_KINDS = [
+        ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.MANZU, i + 1)),
+        ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.PINZU, i + 1)),
+        ...Array.from({ length: 9 }, (_, i) => createPai(PAI_TYPES.SOUZU, i + 1)),
+        ...Array.from({ length: 7 }, (_, i) => createPai(PAI_TYPES.JIHAI, i + 1)),
+    ];
+
     if (loadGame()) {
         // 時間経過による★の回復を計算
         const now = Date.now();
@@ -537,7 +539,6 @@ function calculateScore(completedHand) {
         if (melds && melds.length === 4) {
             // 和了形が成立した場合、役を判定
             let currentYakuScore = 0;
-            let currentYakuScore = 0;
 
             // --- 混全帯么九 / 純全帯么九の判定 ---
             const allComponents = [...melds, { type: 'pair', pais: [pair] }];
@@ -610,7 +611,6 @@ function calculateScore(completedHand) {
             }
 
             // --- 役牌（白・發・中）の判定 ---
-            const koutsuMelds = melds.filter(meld => meld.type === 'koutsu');
             for (const meld of koutsuMelds) {
                 const pai = meld.pais[0];
                 // 白(5), 發(6), 中(7)
