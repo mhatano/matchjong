@@ -471,6 +471,8 @@ function calculateScore(completedHand) {
         yakuhai: 500, // 1刻子あたりの点数
         junchan: 2000,
         chanta: 1000,
+        sanshokuDoujun: 2000,
+        sanshokuDoukou: 2000,
     };
 
     // 雀頭の候補を見つける
@@ -553,6 +555,36 @@ function calculateScore(completedHand) {
                 }
             }
 
+            // --- 三色同順の判定 ---
+            const shuntsuMeldsForSanshoku = melds.filter(meld => meld.type === 'shuntsu');
+            const shuntsuByNumber = shuntsuMeldsForSanshoku.reduce((acc, meld) => {
+                const startNum = meld.pais.sort((a, b) => a.number - b.number)[0].number;
+                const paiType = meld.pais[0].type;
+                if (!acc[startNum]) {
+                    acc[startNum] = new Set();
+                }
+                acc[startNum].add(paiType);
+                return acc;
+            }, {});
+
+            for (const num in shuntsuByNumber) {
+                if (shuntsuByNumber[num].has(PAI_TYPES.MANZU) && shuntsuByNumber[num].has(PAI_TYPES.PINZU) && shuntsuByNumber[num].has(PAI_TYPES.SOUZU)) {
+                    currentYakuScore += yakuBonuses.sanshokuDoujun;
+                    break; // 三色同順は1つまで
+                }
+            }
+
+            // --- 三色同刻の判定 ---
+            const koutsuByNumber = koutsuMelds.reduce((acc, meld) => {
+                const num = meld.pais[0].number;
+                const paiType = meld.pais[0].type;
+                if (paiType !== PAI_TYPES.JIHAI) { // 字牌は対象外
+                    if (!acc[num]) acc[num] = new Set();
+                    acc[num].add(paiType);
+                }
+                return acc;
+            }, {});
+
             // --- 順子系の役の判定（対々和、清一色、混一色と複合しない場合が多い） ---
             if (!isToitoi && !isJunchanOrChanta) { // 対々和やチャンタ系とは複合しない
                 const shuntsuMelds = melds.filter(meld => meld.type === 'shuntsu');
@@ -581,6 +613,15 @@ function calculateScore(completedHand) {
                     }
                 }
             }
+
+            // --- 三色同刻の判定 ---
+            for (const num in koutsuByNumber) {
+                if (koutsuByNumber[num].has(PAI_TYPES.MANZU) && koutsuByNumber[num].has(PAI_TYPES.PINZU) && koutsuByNumber[num].has(PAI_TYPES.SOUZU)) {
+                    currentYakuScore += yakuBonuses.sanshokuDoukou;
+                    break; // 三色同刻は1つまで
+                }
+            }
+
             
             return totalScore + currentYakuScore; // 最初の有効な和了形で計算を終了
         }
