@@ -24,13 +24,19 @@ body {
 }
 
 .hint-container {
-    display: none; /* デフォルトでは非表示 */
-    align-self: center;
+    /* display: none; を削除し、常に表示されるようにする */
+    margin-bottom: 10px; /* 手牌の見出しとの間に余白を追加 */
 }
 
 #hint-button {
     padding: 8px 16px;
     font-size: 14px;
+}
+
+#hint-button:disabled {
+    background-color: #ccc;
+    color: #666;
+    cursor: not-allowed;
 }
 
 #game-board {

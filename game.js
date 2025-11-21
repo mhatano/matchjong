@@ -4,6 +4,7 @@
 const canvas = document.getElementById('game-board');
 const ctx = canvas.getContext('2d');
 const scoreEl = document.getElementById('score');
+const starsEl = document.getElementById('stars'); // ★表示用の要素
 const statusEl = document.getElementById('game-status');
 const handSlotsContainer = document.getElementById('hand-slots');
 const hintContainer = document.getElementById('hint-container');
@@ -23,6 +24,7 @@ const PAI_KINDS = [
 let board = [];
 let hand = [];
 let score = 0;
+let stars = 0; // ★の数
 let selectedTile = null;
 let gameState = 'COLLECTING_MELTS'; // or 'MAKING_PAIR'
 let matchableTiles = new Set();
@@ -30,6 +32,9 @@ let isHintActive = false; // ヒント機能が有効かどうかのフラグ
 
 // --- 初期化処理 ---
 function init() {
+    // ゲーム状態の初期化
+    stars = 5;
+
     // 手牌スロットの生成
     for (let i = 0; i < 14; i++) {
         const slot = document.createElement('div');
@@ -95,6 +100,7 @@ function drawPai(x, y, pai, isMatchable = false) {
 // --- 画面更新 ---
 function updateDisplay() {
     scoreEl.textContent = score;
+    starsEl.textContent = '★'.repeat(stars); // ★の表示を更新
 
     // 手牌スロットの更新
     for (let i = 0; i < 14; i++) {
@@ -109,12 +115,8 @@ function updateDisplay() {
         statusEl.textContent = '聴牌！ 対子を作って和了！';
     }
 
-    // スコアに応じてヒントボタンの表示を切り替える
-    if (score >= 200 && gameState === 'COLLECTING_MELTS') {
-        hintContainer.style.display = 'block';
-    } else {
-        hintContainer.style.display = 'none';
-    }
+    // 条件に応じてヒントボタンを有効/無効にする
+    hintButton.disabled = !(stars > 0 && gameState === 'COLLECTING_MELTS');
 }
 
 // --- ゲームロジック ---
@@ -124,10 +126,10 @@ function getRandomPai() {
 }
 
 function onHintClick() {
-    if (score < 200 || isHintActive) return;
+    if (stars < 1 || isHintActive || gameState !== 'COLLECTING_MELTS') return;
 
-    score -= 200;
     isHintActive = true;
+    stars--; // ★を1消費
     
     findAllMatchableTiles();
     updateDisplay();
@@ -254,9 +256,16 @@ async function handleWin(winPais, winPositions) {
     hand.sort((a, b) => a.type.localeCompare(b.type) || a.number - b.number);
 
     if (hand.length === 14) {
+        const oldScore = score;
         const yakuScore = calculateScore(hand);
         score += yakuScore;
-        updateDisplay(); // スコアを先に更新
+
+        // 10000点ごとに★を獲得
+        const starsEarned = Math.floor(score / 10000) - Math.floor(oldScore / 10000);
+        if (starsEarned > 0) {
+            stars = Math.min(10, stars + starsEarned); // 最大10個まで
+        }
+        updateDisplay(); // スコアと★を先に更新
         await sleep(100);
         alert(`和了！ ${yakuScore}点獲得！`);
 
