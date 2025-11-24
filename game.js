@@ -5,6 +5,7 @@ const canvas = document.getElementById('game-board');
 const ctx = canvas.getContext('2d');
 const scoreEl = document.getElementById('score');
 const starsEl = document.getElementById('stars'); // ★表示用の要素
+const starRecoveryTimerEl = document.getElementById('star-recovery-timer'); // カウントダウン表示用の要素
 const statusEl = document.getElementById('game-status');
 const handSlotsContainer = document.getElementById('hand-slots');
 const hintContainer = document.getElementById('hint-container');
@@ -25,15 +26,25 @@ let board = [];
 let hand = [];
 let score = 0;
 let stars = 0; // ★の数
+const RECOVERY_MAX_STARS = 5; // 時間回復での★の最大値
+const ABSOLUTE_MAX_STARS = 10; // 全体での★の最大値
 let selectedTile = null;
-let gameState = 'COLLECTING_MELTS'; // or 'MAKING_PAIR'
+let gameState = 'COLLECTING_MELTS'; // 'COLLECTING_MELTS' or 'MAKING_PAIR'
 let matchableTiles = new Set();
 let isHintActive = false; // ヒント機能が有効かどうかのフラグ
+let nextStarRecoveryTime = 0; // 次に★が回復する時刻のタイムスタンプ
+const STAR_RECOVERY_INTERVAL = 1000 * 60 * 60; // 1時間
 
 // --- 初期化処理 ---
 function init() {
-    // ゲーム状態の初期化
-    stars = 5;
+    // カウントダウン表示用の要素を動的に作成
+    const infoPanel = document.querySelector('.info-panel');
+    if (infoPanel && !document.getElementById('star-recovery-container')) {
+        const timerContainer = document.createElement('div');
+        timerContainer.id = 'star-recovery-container';
+        timerContainer.innerHTML = `<span>次の★回復まで:</span><span id="star-recovery-timer">--:--:--</span>`;
+        infoPanel.appendChild(timerContainer);
+    }
 
     // 手牌スロットの生成
     for (let i = 0; i < 14; i++) {
@@ -42,6 +53,28 @@ function init() {
         slot.id = `slot-${i}`;
         handSlotsContainer.appendChild(slot);
     }
+
+    if (!loadGameState()) {
+        // 保存されたデータがない場合、新規ゲームを開始
+        resetGame();
+    }
+
+    // 1秒ごとにカウントダウンを更新
+    setInterval(updateRecoveryTimer, 1000);
+
+    canvas.addEventListener('click', onCanvasClick);
+    hintButton.addEventListener('click', onHintClick);
+    updateDisplay();
+    drawBoard();
+}
+
+function resetGame() {
+    // ゲーム状態の初期化
+    stars = 5;
+    score = 0;
+    hand = [];
+    gameState = 'COLLECTING_MELTS';
+    nextStarRecoveryTime = Date.now() + STAR_RECOVERY_INTERVAL;
 
     // ゲーム盤面の初期化
     for (let r = 0; r < GRID_SIZE; r++) {
@@ -57,11 +90,7 @@ function init() {
         removeMatches(initialMatches.flat());
         fillBoard();
     }
-
-    canvas.addEventListener('click', onCanvasClick);
-    hintButton.addEventListener('click', onHintClick);
-    updateDisplay();
-    drawBoard();
+    saveGameState();
 }
 
 // --- 描画処理 ---
@@ -119,6 +148,49 @@ function updateDisplay() {
     hintButton.disabled = !(stars > 0 && gameState === 'COLLECTING_MELTS');
 }
 
+// --- ★の回復とタイマー処理 ---
+function updateRecoveryTimer() {
+    if (stars >= RECOVERY_MAX_STARS) {
+        const timerEl = document.getElementById('star-recovery-timer');
+        if(timerEl) timerEl.textContent = "回復済み";
+        return;
+    }
+
+    const now = Date.now();
+    if (now >= nextStarRecoveryTime) {
+        // 時間が来たら★を回復
+        const recoveredCount = Math.floor((now - nextStarRecoveryTime) / STAR_RECOVERY_INTERVAL) + 1;
+        const newStars = Math.min(RECOVERY_MAX_STARS, stars + recoveredCount);
+        const actualRecovered = newStars - stars;
+
+        if (actualRecovered > 0) {
+            stars = newStars;
+            console.log(`★が${actualRecovered}個回復しました。現在の★: ${stars}`);
+        }
+
+        // 次の回復時刻を更新
+        if (stars < RECOVERY_MAX_STARS) {
+            nextStarRecoveryTime = nextStarRecoveryTime + recoveredCount * STAR_RECOVERY_INTERVAL;
+        }
+        updateDisplay();
+        saveGameState();
+    }
+
+    // 残り時間を表示
+    const remainingTime = Math.max(0, nextStarRecoveryTime - now);
+    const hours = Math.floor(remainingTime / (1000 * 60 * 60));
+    const minutes = Math.floor((remainingTime % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((remainingTime % (1000 * 60)) / 1000);
+
+    const timerEl = document.getElementById('star-recovery-timer');
+    if (timerEl) {
+        timerEl.textContent = 
+            `${String(hours).padStart(2, '0')}:` +
+            `${String(minutes).padStart(2, '0')}:` +
+            `${String(seconds).padStart(2, '0')}`;
+    }
+}
+
 // --- ゲームロジック ---
 
 function getRandomPai() {
@@ -133,6 +205,7 @@ function onHintClick() {
     
     findAllMatchableTiles();
     updateDisplay();
+    saveGameState();
     drawBoard();
 }
 
@@ -192,6 +265,7 @@ async function swapAndCheck(r1, c1, r2, c2) {
             // マッチ失敗、元に戻す
             swap(r1, c1, r2, c2);
             drawBoard();
+            // 状態は変わらないので保存は不要
         }
     }
 }
@@ -263,7 +337,7 @@ async function handleWin(winPais, winPositions) {
         // 10000点ごとに★を獲得
         const starsEarned = Math.floor(score / 10000) - Math.floor(oldScore / 10000);
         if (starsEarned > 0) {
-            stars = Math.min(10, stars + starsEarned); // 最大10個まで
+            stars = Math.min(ABSOLUTE_MAX_STARS, stars + starsEarned); // 最大値(10)を超えないようにする
         }
         updateDisplay(); // スコアと★を先に更新
         await sleep(100);
@@ -325,6 +399,7 @@ async function processBoardAfterRemove() {
     }
 
     updateDisplay();
+    saveGameState();
 }
 
 async function checkAndHandleChain() {
@@ -454,6 +529,7 @@ async function shuffleBoard() {
     drawBoard();
     await sleep(300);
 
+    saveGameState();
     // シャッフル後もマッチや手詰まりがないか再チェック
     await checkAndHandleChain();
 }
@@ -461,6 +537,53 @@ async function shuffleBoard() {
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// --- ゲーム状態の保存と復元 ---
+
+function saveGameState() {
+    const gameStateData = {
+        board,
+        hand,
+        score,
+        stars,
+        gameState,
+        nextStarRecoveryTime,
+    };
+    localStorage.setItem('mahjongGameState', JSON.stringify(gameStateData));
+    console.log("Game state saved.");
+}
+
+function loadGameState() {
+    const savedData = localStorage.getItem('mahjongGameState');
+    if (!savedData) {
+        return false; // 保存データなし
+    }
+
+    const gameStateData = JSON.parse(savedData);
+
+    board = gameStateData.board;
+    hand = gameStateData.hand;
+    score = gameStateData.score;
+    stars = gameStateData.stars;
+    gameState = gameStateData.gameState;
+    nextStarRecoveryTime = gameStateData.nextStarRecoveryTime;
+
+    // オフライン中の★回復処理
+    const now = Date.now();
+    if (stars < RECOVERY_MAX_STARS && now > nextStarRecoveryTime) {
+        const elapsedTime = now - nextStarRecoveryTime;
+        const recoveredCount = Math.floor(elapsedTime / STAR_RECOVERY_INTERVAL) + 1;
+        const newStars = Math.min(RECOVERY_MAX_STARS, stars + recoveredCount);
+        if (newStars > stars) {
+            console.log(`オフライン中に★が${newStars - stars}個回復しました。`);
+            stars = newStars;
+        }
+    }
+    
+    console.log("Game state loaded.");
+    return true;
+}
+
 
 // --- 役判定とスコア計算 ---
 
