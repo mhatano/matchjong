@@ -158,20 +158,19 @@ function updateRecoveryTimer() {
 
     const now = Date.now();
     if (now >= nextStarRecoveryTime) {
-        // 時間が来たら★を回復
-        const recoveredCount = Math.floor((now - nextStarRecoveryTime) / STAR_RECOVERY_INTERVAL) + 1;
-        const newStars = Math.min(RECOVERY_MAX_STARS, stars + recoveredCount);
-        const actualRecovered = newStars - stars;
+        // ★が最大でない場合のみ回復処理
+        stars = Math.min(RECOVERY_MAX_STARS, stars + 1);
+        console.log(`★が1個回復しました。現在の★: ${stars}`);
 
-        if (actualRecovered > 0) {
-            stars = newStars;
-            console.log(`★が${actualRecovered}個回復しました。現在の★: ${stars}`);
+        // 次の回復時刻を現在時刻を基準に再設定
+        nextStarRecoveryTime = Date.now() + STAR_RECOVERY_INTERVAL;
+
+        // もしオフライン中に複数個回復すべきだった場合を考慮して、次の回復時刻を調整
+        while (nextStarRecoveryTime <= now && stars < RECOVERY_MAX_STARS) {
+            stars++;
+            nextStarRecoveryTime += STAR_RECOVERY_INTERVAL;
         }
 
-        // 次の回復時刻を更新
-        if (stars < RECOVERY_MAX_STARS) {
-            nextStarRecoveryTime = nextStarRecoveryTime + recoveredCount * STAR_RECOVERY_INTERVAL;
-        }
         updateDisplay();
         saveGameState();
     }
@@ -573,11 +572,15 @@ function loadGameState() {
     if (stars < RECOVERY_MAX_STARS && now > nextStarRecoveryTime) {
         const elapsedTime = now - nextStarRecoveryTime;
         const recoveredCount = Math.floor(elapsedTime / STAR_RECOVERY_INTERVAL) + 1;
-        const newStars = Math.min(RECOVERY_MAX_STARS, stars + recoveredCount);
-        if (newStars > stars) {
-            console.log(`オフライン中に★が${newStars - stars}個回復しました。`);
-            stars = newStars;
+        const recoveredStars = Math.min(RECOVERY_MAX_STARS, stars + recoveredCount);
+        if (recoveredStars > stars) {
+            console.log(`オフライン中に★が${recoveredStars - stars}個回復しました。`);
+            stars = recoveredStars;
         }
+    }
+    // ★が最大でない場合、次の回復時刻が過去になっていたら未来の時刻に更新する
+    if (stars < RECOVERY_MAX_STARS && Date.now() > nextStarRecoveryTime) {
+        nextStarRecoveryTime = Date.now() + STAR_RECOVERY_INTERVAL;
     }
     
     console.log("Game state loaded.");
