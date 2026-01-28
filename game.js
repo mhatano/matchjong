@@ -34,9 +34,43 @@ let matchableTiles = new Set();
 let isHintActive = false; // ヒント機能が有効かどうかのフラグ
 let nextStarRecoveryTime = 0; // 次に★が回復する時刻のタイムスタンプ
 const STAR_RECOVERY_INTERVAL = 1000 * 60 * 60; // 1時間
+let paiImages = {}; // 読み込んだ牌画像を格納するオブジェクト
+
+// --- ヘルパー関数 ---
+function getPaiImageKey(pai) {
+    if (!pai) return '';
+    return `${pai.type}${pai.number}`;
+}
 
 // --- 初期化処理 ---
-function init() {
+
+/**
+ * すべての牌画像を非同期で読み込む
+ * @returns {Promise} すべての画像の読み込みが完了したら解決されるPromise
+ */
+function loadPaiImages() {
+    console.log("牌画像の読み込みを開始します...");
+    const promises = PAI_KINDS.map(pai => {
+        return new Promise((resolve, reject) => {
+            const key = getPaiImageKey(pai);
+            const img = new Image();
+            // 画像ファイルは images/m1.png, images/z1.png のような命名規則を想定
+            img.src = `images/${key}.png`;
+            img.onload = () => {
+                paiImages[key] = img;
+                resolve();
+            };
+            img.onerror = () => {
+                const errorMsg = `画像の読み込みに失敗しました: ${img.src}`;
+                console.error(errorMsg);
+                reject(new Error(errorMsg));
+            };
+        });
+    });
+    return Promise.all(promises);
+}
+
+async function init() {
     // カウントダウン表示用の要素を動的に作成
     const infoPanel = document.querySelector('.info-panel');
     if (infoPanel && !document.getElementById('star-recovery-container')) {
@@ -44,6 +78,15 @@ function init() {
         timerContainer.id = 'star-recovery-container';
         timerContainer.innerHTML = `<span>次の★回復まで:</span><span id="star-recovery-timer">--:--:--</span>`;
         infoPanel.appendChild(timerContainer);
+    }
+    
+    try {
+        await loadPaiImages();
+        console.log("すべての牌画像の読み込みが完了しました。");
+    } catch (error) {
+        console.error("牌画像の読み込み中にエラーが発生したため、ゲームを開始できません。", error);
+        alert("牌画像の読み込みに失敗しました。imagesフォルダやファイル名を確認してください。");
+        return; // ゲームを開始しない
     }
 
     // 手牌スロットの生成
@@ -119,23 +162,28 @@ function drawPai(x, y, pai, isMatchable = false) {
     ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
     ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
     
-    ctx.fillStyle = 'black';
-    ctx.font = `${TILE_SIZE * 0.6}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(paiToString(pai), x + TILE_SIZE / 2, y + TILE_SIZE / 2);
+    const key = getPaiImageKey(pai);
+    const image = paiImages[key];
+
+    if (image) {
+        // 画像の縦横比を保ちつつ、タイル内に収まるように描画
+        const padding = TILE_SIZE * 0.1; // タイル内の余白
+        ctx.drawImage(image, x + padding, y + padding, TILE_SIZE - (padding * 2), TILE_SIZE - (padding * 2));
+    } else {
+        // 画像がない場合のフォールバックとして文字を描画
+        ctx.fillStyle = 'black';
+        ctx.font = `${TILE_SIZE * 0.6}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(paiToString(pai), x + TILE_SIZE / 2, y + TILE_SIZE / 2);
+    }
 }
 
 // --- 画面更新 ---
 function updateDisplay() {
     scoreEl.textContent = score;
     starsEl.textContent = '★'.repeat(stars); // ★の表示を更新
-
-    // 手牌スロットの更新
-    for (let i = 0; i < 14; i++) {
-        const slot = document.getElementById(`slot-${i}`);
-        slot.textContent = hand[i] ? paiToString(hand[i]) : '';
-    }
+    updateHandDisplay();
 
     // ゲーム状態の表示
     if (gameState === 'COLLECTING_MELTS') {
@@ -146,6 +194,24 @@ function updateDisplay() {
 
     // 条件に応じてヒントボタンを有効/無効にする
     hintButton.disabled = !(stars > 0 && gameState === 'COLLECTING_MELTS');
+}
+
+function updateHandDisplay() {
+    // 手牌スロットの更新
+    for (let i = 0; i < 14; i++) {
+        const slot = document.getElementById(`slot-${i}`);
+        slot.innerHTML = ''; // 中身を一度クリア
+        if (hand[i]) {
+            const pai = hand[i];
+            const key = getPaiImageKey(pai);
+            const imageSrc = `images/${key}.png`;
+
+            const img = document.createElement('img');
+            img.src = imageSrc;
+            img.alt = paiToString(pai); // 代替テキストとして文字列表現を使用
+            slot.appendChild(img);
+        }
+    }
 }
 
 // --- ★の回復とタイマー処理 ---
