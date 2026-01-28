@@ -145,7 +145,7 @@ function drawBoard() {
             if (pai) {
                 // マッチ可能な牌は背景色を変える
                 const isMatchable = isHintActive && matchableTiles.has(`${r}-${c}`);
-                drawPai(c * TILE_SIZE, r * TILE_SIZE, pai, isMatchable);
+                drawPai(c * TILE_SIZE, r * TILE_SIZE * 2.0, pai, isMatchable);
             }
             // 選択中の牌をハイライト
             if (selectedTile && selectedTile.r === r && selectedTile.c === c) {

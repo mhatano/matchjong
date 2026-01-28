@@ -5,7 +5,7 @@ import time
 # 麻雀牌画像の保存先ディレクトリ
 TARGET_DIR = "images"
 # 画像のソースURL (karc/mj-tile-images を使用)
-BASE_URL = "https://github.com/FluffyStuff/riichi-mahjong-tiles/tree/master/Export/Regular/"
+BASE_URL = "https://github.com/FluffyStuff/riichi-mahjong-tiles/blob/master/Export/Regular/"
 
 # ファイル名のマッピング定義
 # リモートのファイル名 -> ローカルのファイル名 (game.jsが期待する形式)
@@ -13,25 +13,23 @@ FILES_MAPPING = {}
 
 # 萬子 (Manzu): man1.png -> m1.png
 for i in range(1, 10):
-    FILES_MAPPING[f"Man{i}.png"] = f"m{i}.png"
+    FILES_MAPPING[f"Man{i}.png?raw=true"] = f"m{i}.png"
 
 # 筒子 (Pinzu): pin1.png -> p1.png
 for i in range(1, 10):
-    FILES_MAPPING[f"Pin{i}.png"] = f"p{i}.png"
-
+    FILES_MAPPING[f"Pin{i}.png?raw=true"] = f"p{i}.png"
 # 索子 (Souzu): sou1.png -> s1.png
 for i in range(1, 10):
-    FILES_MAPPING[f"Sou{i}.png"] = f"s{i}.png"
+    FILES_MAPPING[f"Sou{i}.png?raw=true"] = f"s{i}.png"
 
 # 字牌 (Jihai): ji1.png -> z1.png ... ji7.png -> z7.png
-FILES_MAPPING[f"Ton.png"] = f"z1.png"
-FILES_MAPPING[f"Nan.png"] = f"z2.png"
-FILES_MAPPING[f"Shaa.png"] = f"z3.png"
-FILES_MAPPING[f"Pei.png"] = f"z4.png"
-FILES_MAPPING[f"Haku.png"] = f"z5.png"
-FILES_MAPPING[f"Hatsu.png"] = f"z6.png"
-FILES_MAPPING[f"Chun.png"] = f"z7.png"
-
+FILES_MAPPING[f"Ton.png?raw=true"] = f"z1.png"
+FILES_MAPPING[f"Nan.png?raw=true"] = f"z2.png"
+FILES_MAPPING[f"Shaa.png?raw=true"] = f"z3.png"
+FILES_MAPPING[f"Pei.png?raw=true"] = f"z4.png"
+FILES_MAPPING[f"Haku.png?raw=true"] = f"z5.png"
+FILES_MAPPING[f"Hatsu.png?raw=true"] = f"z6.png"
+FILES_MAPPING[f"Chun.png?raw=true"] = f"z7.png"
 def main():
     # ディレクトリが存在しない場合は作成
     if not os.path.exists(TARGET_DIR):
