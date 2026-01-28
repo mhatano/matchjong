@@ -145,29 +145,43 @@ function drawBoard() {
             if (pai) {
                 // マッチ可能な牌は背景色を変える
                 const isMatchable = isHintActive && matchableTiles.has(`${r}-${c}`);
-                drawPai(c * TILE_SIZE, r * TILE_SIZE * 2.0, pai, isMatchable);
+                drawPai(c * TILE_SIZE, r * TILE_SIZE, pai, isMatchable);
             }
-            // 選択中の牌をハイライト
-            if (selectedTile && selectedTile.r === r && selectedTile.c === c) {
-                ctx.strokeStyle = 'yellow';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-            }
+        }
+    }
+
+    // 選択中の牌をハイライト（全ての牌を描画した後に描画することで、隣接する牌に隠れないようにする）
+    if (selectedTile) {
+        const { r, c } = selectedTile;
+        if (board[r] && board[r][c]) {
+            ctx.strokeStyle = 'yellow';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(c * TILE_SIZE, r * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         }
     }
 }
 
 function drawPai(x, y, pai, isMatchable = false) {
     ctx.fillStyle = isMatchable ? '#e6f7ff' : 'white'; // マッチ可能なら水色、そうでなければ白
-    ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-    ctx.strokeRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+
+    // 線の設定
+    if (isMatchable) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'blue';
+    } else {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'white';
+    }
+
+    ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+    ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
     
     const key = getPaiImageKey(pai);
     const image = paiImages[key];
 
     if (image) {
         // 画像の縦横比を保ちつつ、タイル内に収まるように描画
-        const padding = TILE_SIZE * 0.1; // タイル内の余白
+        const padding = 1; // タイル内の余白
         ctx.drawImage(image, x + padding, y + padding, TILE_SIZE - (padding * 2), TILE_SIZE - (padding * 2));
     } else {
         // 画像がない場合のフォールバックとして文字を描画
